@@ -1,28 +1,42 @@
 package main
 
 import (
-	"fmt"
-	"log"
-
 	"github.com/carlosbueloni/gator-rss/internal/config"
+	"log"
+	"os"
 )
+
+type state struct {
+	cfg *config.Config
+}
 
 func main() {
 	cfg, err := config.Read()
 	if err != nil {
-		log.Fatalf("error reading config file: %v", err)
+		log.Fatalf("error reading config: %v", err)
 	}
-	fmt.Printf("Read config: %v\n", cfg)
+	programState := &state{
+		cfg: &cfg,
+	}
+	cmds := commands{
+		Commands: make(map[string]func(*state, command) error),
+	}
+	cmds.register("login", handlerLogin)
 
-	err = cfg.SetUser("Steven Universe")
-	if err != nil {
-		log.Fatalf("error setting usename: %v", err)
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: cli <command> [args...]")
 	}
 
-	cfg, err = config.Read()
-	if err != nil {
-		log.Fatalf("error reading config file: %v", err)
+	cmdName := os.Args[1]
+	cmdArgs := os.Args[2:]
+
+	newCommand := command{
+		Name: cmdName,
+		Args: cmdArgs,
 	}
-	fmt.Printf("Read config again: %v\n", cfg)
+	err = cmds.run(programState, newCommand)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
