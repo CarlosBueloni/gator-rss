@@ -1,7 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"time"
+
+	"github.com/carlosbueloni/gator-rss/internal/database"
+	"github.com/google/uuid"
 )
 
 func handlerLogin(s *state, cmd command) error {
@@ -11,6 +17,10 @@ func handlerLogin(s *state, cmd command) error {
 
 	userName := cmd.Args[0]
 
+	if _, err := s.db.GetUser(context.Background(), userName); err != nil {
+		os.Exit(1)
+	}
+
 	err := s.cfg.SetUser(userName)
 	if err != nil {
 		return fmt.Errorf("couldn't set current user: %w", err)
@@ -19,4 +29,27 @@ func handlerLogin(s *state, cmd command) error {
 	fmt.Printf("User %v has been set\n", userName)
 
 	return nil
+}
+
+func handlerRegister(s *state, cmd command) error {
+	if len(cmd.Args) != 1 {
+		return fmt.Errorf("usage: %s <name>", cmd.Name)
+	}
+	ctx := context.Background()
+	userParams := database.CreateUserParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      cmd.Args[0],
+	}
+
+	user, err := s.db.CreateUser(ctx, userParams)
+	if err != nil {
+		return err
+	}
+	s.cfg.SetUser(user.Name)
+	fmt.Printf("User: %v with UUID: %v was created at %v, and last updated at: %v", user.Name, user.ID, user.CreatedAt, user.UpdatedAt)
+
+	return nil
+
 }
