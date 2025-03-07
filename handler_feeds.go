@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"time"
@@ -60,39 +59,11 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	return &rssFeed, nil
 }
 
-func handlerAgg(s *state, cmd command) error {
-	ctx := context.Background()
-	feeds, err := fetchFeed(ctx, "https://www.wagslane.dev/index.xml")
-	if err != nil {
-		return err
-	}
-
-	feeds.Channel.Title = html.UnescapeString(feeds.Channel.Title)
-	feeds.Channel.Description = html.UnescapeString(feeds.Channel.Description)
-	for i, item := range feeds.Channel.Item {
-		feeds.Channel.Item[i].Title = html.UnescapeString(item.Title)
-		feeds.Channel.Item[i].Description = html.UnescapeString(item.Description)
-	}
-
-	fmt.Printf("Title: %v\n\n", feeds.Channel.Title)
-	fmt.Printf("Description: %v\n\n", feeds.Channel.Description)
-	fmt.Println("Items:")
-	for _, item := range feeds.Channel.Item {
-		fmt.Printf("Title: %v\n\n", item.Title)
-		fmt.Printf("Description: %v\n\n", item.Description)
-	}
-	return nil
-}
-
-func handlerAddFeed(s *state, cmd command) error {
-	user, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
-	if err != nil {
-		return err
-	}
-
+func handlerAddFeed(s *state, cmd command, user database.User) error {
 	if len(cmd.Args) != 2 {
 		return fmt.Errorf("usage %s <name> <url>", cmd.Name)
 	}
+
 	name := cmd.Args[0]
 	url := cmd.Args[1]
 
@@ -104,8 +75,20 @@ func handlerAddFeed(s *state, cmd command) error {
 		Name:      name,
 		Url:       url,
 	})
+
 	if err != nil {
 		return fmt.Errorf("couldn't create feed: %w", err)
+	}
+
+	_, err = s.db.CreateFeedFollow(context.Background(), database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		UserID:    user.ID,
+		FeedID:    feed.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("error creating feed follow: %v", err)
 	}
 
 	fmt.Println("Feed Created Successfully: ")
@@ -118,9 +101,11 @@ func handlerAddFeed(s *state, cmd command) error {
 
 func handlerFeeds(s *state, cmd command) error {
 	feeds, err := s.db.GetFeeds(context.Background())
+
 	if err != nil {
 		return fmt.Errorf("error getting feeds: %w", err)
 	}
+
 	for _, feed := range feeds {
 		fmt.Printf("Name: %v\n", feed.Name)
 		fmt.Printf("Url: %v\n", feed.Url)
@@ -130,6 +115,64 @@ func handlerFeeds(s *state, cmd command) error {
 		}
 		fmt.Printf("User: %v\n", user)
 	}
+	return nil
+}
+
+func handlerFollow(s *state, cmd command, user database.User) error {
+	if len(cmd.Args) != 1 {
+		return fmt.Errorf("usage %s <url>", cmd.Name)
+	}
+
+	url := cmd.Args[0]
+	feed, err := s.db.GetFeedByURL(context.Background(), url)
+	if err != nil {
+		return fmt.Errorf("error getting feed from url %v", err)
+	}
+
+	feedFollow, err := s.db.CreateFeedFollow(context.Background(), database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		UserID:    user.ID,
+		FeedID:    feed.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("error adding feed to followed feeds: %v", err)
+	}
+
+	fmt.Printf("feed: %v\n", feedFollow.UserName)
+	fmt.Printf("user: %v\n", feedFollow.FeedName)
+
+	return nil
+}
+
+func handlerFollowing(s *state, cmd command, user database.User) error {
+	feeds, err := s.db.GetFeedFollowsForUser(context.Background(), user.ID)
+	if err != nil {
+		return fmt.Errorf("error getting feeds: %v", err)
+	}
+
+	for _, feed := range feeds {
+		fmt.Println(feed.FeedName)
+	}
+
+	return nil
+}
+
+func handlerUnfollow(s *state, cmd command, user database.User) error {
+	if len(cmd.Args) != 1 {
+		return fmt.Errorf("usage %s <url>", cmd.Name)
+	}
+	url := cmd.Args[0]
+
+	err := s.db.Unfollow(context.Background(), database.UnfollowParams{
+		Name: user.Name,
+		Url:  url,
+	})
+	if err != nil {
+		return fmt.Errorf("error unfollowing feed: %v", err)
+	}
+
 	return nil
 }
 
